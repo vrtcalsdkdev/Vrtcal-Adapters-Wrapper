@@ -1,14 +1,35 @@
 import Vrtcal_Adapters_Wrapper_Parent
-import AppLovinSDK
+import VrtcalSDK
 
-class VrtcalAppLovinAdaptersWrapper: NSObject, AdapterWrapperProtocol {
+class VrtcalAdaptersWrapper: AdapterWrapperProtocol {
     
     var appLogger: Logger
     var sdkEventsLogger: Logger
-    var sdk = SDK.appLovin
+    var sdk = SDK.vrtcal
     var delegate: AdapterWrapperDelegate
 
-    var maInterstitialAd: MAInterstitialAd?
+    var vrtInterstitial: VRTInterstitial?
+    var interstitialReady = false
+    
+    var serverUrl: URL {
+        let strUrl = UserDefaults.standard.string(forKey: "serverUrl") ?? "https://adplatform.vrtcal.com"
+        return URL(string: strUrl)!
+    }
+    
+    var appId: Int {
+        let appId = UserDefaults.standard.integer(forKey: "appId")
+        
+        guard appId != 0 else {
+            // TwitMore's App ID
+            return 11050
+        }
+        
+        return appId
+    }
+    
+    var daastMode: Bool {
+        UserDefaults.standard.bool(forKey: "daastMode")
+    }
     
     required init(
         appLogger: Logger,
@@ -21,121 +42,181 @@ class VrtcalAppLovinAdaptersWrapper: NSObject, AdapterWrapperProtocol {
     }
     
     func initializeSdk() {
-        appLogger.log()
+        appLogger.log("serverUrl: \(serverUrl), appId: \(appId)")
         
-        // Create the initialization configuration
-        let alSdkInitializationConfiguration = ALSdkInitializationConfiguration(
-            sdkKey: "zX98f05BcqcbWKqKiHeqHpHOF9CFD46s7sQfrikSgw6AnroGcf22Ep1qH-IvnL4viE5rkF5qTNvBzT_EzNClPh"
-        ) { builder in
-            builder.mediationProvider = ALMediationProviderMAX
-            
-            // Get all the ad units we'll be using
-            let adUnitIdentifiers = AdTechConfigProvider.allCases.map {
-                $0.adTechConfig
-            }.filter {
-                $0.primarySdk == .appLovin
-            }.map {
-                $0.adUnitId
-            }
-            builder.adUnitIdentifiers = adUnitIdentifiers
-            
-            // Enable verbose logging
-            builder.settings.isVerboseLoggingEnabled = true
-        }
-        
-        ALSdk.shared()!.initialize(with: alSdkInitializationConfiguration) { (configuration: ALSdkConfiguration) in
-            self.appLogger.log("configuration: \(configuration)")
-            
-            // Start loading ads
-            self.sdkEventsLogger.log("AppLovin Initialized")
-            if self.delegate.isSimulator {
-                self.sdkEventsLogger.log("Note that AppLovin-As-Primary will not work on simulator")
-            }
-        }
+        VRTLog.singleton.writeToFile = true
+        VrtcalSDK.setServerUrl(serverUrl)
+        VrtcalSDK.initializeSdk(
+            withAppId: appId,
+            sdkDelegate: self
+        )
     }
     
     func handle(adTechConfig: AdTechConfig) {
         
+        let zoneId = Int(adTechConfig.adUnitId) ?? 0
+        
         switch adTechConfig.placementType {
-                
             case .banner:
-                appLogger.log("AppLovin Banner - VRTMediationAdapter")
-                let maAdView = MAAdView(
-                    adUnitIdentifier: adTechConfig.adUnitId
-                )
-                maAdView.delegate = self
-                delegate.adapterWrapperDidProvide(banner: maAdView)
-                maAdView.loadAd()
+                appLogger.log("Vrtcal Banner")
+                let vrtBanner = VRTBanner()
+                vrtBanner.adDelegate = self
+                
+            
+                if daastMode {
+                    vrtBanner.isDaast = true
+                    vrtBanner.addOffScreenConstraints()
+                } else {
+                    vrtBanner.addFillSuperViewContraints()
+                }
+
+                let zoneId = Int(adTechConfig.adUnitId) ?? 0
+                vrtBanner.loadAd(zoneId)
+            
+                delegate.adapterWrapperDidProvide(banner: vrtBanner)
                 
             case .interstitial:
-                appLogger.log("AppLovin Interstitial - VRTMediationAdapter")
-                maInterstitialAd = MAInterstitialAd(
-                    adUnitIdentifier: adTechConfig.adUnitId
-                )
-                maInterstitialAd?.delegate = self
-                maInterstitialAd?.load()
+                appLogger.log("Vrtcal Interstitial")
+            
+                self.vrtInterstitial = VRTInterstitial()
+                vrtInterstitial?.adDelegate = self
+                vrtInterstitial?.loadAd(zoneId)
 
             case .rewardedVideo:
-                sdkEventsLogger.log("rewardedVideo not supported for AppLovin")
+                sdkEventsLogger.log("rewardedVideo not supported for Vrtcal")
                 
             case .showDebugView:
-                ALSdk.shared()!.showMediationDebugger()
+                sdkEventsLogger.log("showDebugView not supported for Vrtcal")
         }
     }
     
     func showInterstitial() -> Bool {
-        if let maInterstitialAd, maInterstitialAd.isReady {
-            maInterstitialAd.show()
-            return true
+        guard let vrtInterstitial, interstitialReady else {
+            return false
         }
-        
-        return false
+
+        interstitialReady = false
+        vrtInterstitial.showAd()
+        return true
     }
     
     func destroyInterstitial() {
-        maInterstitialAd = nil
+        vrtInterstitial = nil
     }
 }
 
-extension VrtcalAppLovinAdaptersWrapper: MAAdDelegate {
-    
-    func didLoad(_ ad: MAAd) {
-        sdkEventsLogger.log("AppLovin didLoad")
+extension VrtcalAdaptersWrapper: VrtcalSdkDelegate {
+    func sdkInitializationFailedWithError(_ error: Error) {
+        appLogger.log("error: \(error)")
     }
     
-    func didFailToLoadAd(
-        forAdUnitIdentifier adUnitIdentifier: String,
-        withError error: MAError
-    ) {
-        sdkEventsLogger.log("AppLovin didFailToLoad: \(error)")
-    }
-    
-    func didDisplay(_ ad: MAAd) {
-        sdkEventsLogger.log("AppLovin didDisplay")
-    }
-    
-    func didHide(_ ad: MAAd) {
-        sdkEventsLogger.log("AppLovin didHide")
-    }
-    
-    func didClick(_ ad: MAAd) {
-        sdkEventsLogger.log("AppLovin didClick")
-    }
-    
-    func didFail(
-        toDisplay ad: MAAd,
-        withError error: MAError
-    ) {
-        sdkEventsLogger.log("AppLovin didFailToDisplay: \(error)")
+    func sdkInitialized() {
+        appLogger.log()
     }
 }
 
-extension VrtcalAppLovinAdaptersWrapper: MAAdViewAdDelegate {
-    func didExpand(_ ad: MAAd) {
-        sdkEventsLogger.log("AppLovin didExpand")
+//MARK: VRTBannerDelegate
+extension VrtcalAdaptersWrapper: VRTBannerDelegate {
+    
+    func vrtBannerAdLoaded(
+        _ vrtBanner: VRTBanner,
+        withAdSize adSize: CGSize
+    ) {
+        appLogger.log("size: \(adSize)")
+        
+        if daastMode {
+            vrtBanner.playDAAST()
+        }
     }
     
-    func didCollapse(_ ad: MAAd) {
-        sdkEventsLogger.log("AppLovin didCollapse")
+    func vrtBannerAdFailedToLoad(_ vrtBanner: VRTBanner, error: Error) {
+        appLogger.log("error: \(error)")
+    }
+    
+    func vrtBannerAdClicked(_ vrtBanner: VRTBanner) {
+        appLogger.log()
+    }
+    
+    func vrtBannerWillPresentModal(_ vrtBanner: VRTBanner, of modalType: VRTModalType) {
+        appLogger.log()
+    }
+    
+    func vrtBannerDidPresentModal(_ vrtBanner: VRTBanner, of modalType: VRTModalType) {
+        appLogger.log()
+    }
+    
+    func vrtBannerWillDismissModal(_ vrtBanner: VRTBanner, of modalType: VRTModalType) {
+        appLogger.log()
+    }
+    
+    func vrtBannerDidDismissModal(_ vrtBanner: VRTBanner, of modalType: VRTModalType) {
+        appLogger.log()
+    }
+    
+    func vrtBannerAdWillLeaveApplication(_ vrtBanner: VRTBanner) {
+        appLogger.log()
+    }
+    
+    func vrtBannerVideoStarted(_ vrtBanner: VRTBanner) {
+        appLogger.log()
+    }
+    
+    func vrtBannerVideoCompleted(_ vrtBanner: VRTBanner) {
+        appLogger.log()
+    }
+    
+    func vrtViewControllerForModalPresentation() -> UIViewController? {
+        let ret = UIApplication.shared.keyWindow?.rootViewController
+        return ret
+    }
+}
+    
+    
+//MARK: VRTInterstitialDelegate
+extension VrtcalAdaptersWrapper: VRTInterstitialDelegate {
+    func vrtInterstitialAdLoaded(_ vrtInterstitial: VRTInterstitial) {
+        appLogger.log()
+        interstitialReady = true
+    }
+    
+    func vrtInterstitialAdFailed(toLoad vrtInterstitial: VRTInterstitial, error: Error) {
+        appLogger.log("error: \(error)")
+        interstitialReady = false
+    }
+    
+    func vrtInterstitialAdFailed(toShow vrtInterstitial: VRTInterstitial, error: Error) {
+        appLogger.log()
+    }
+    
+    func vrtInterstitialAdClicked(_ vrtInterstitial: VRTInterstitial) {
+        appLogger.log()
+    }
+    
+    func vrtInterstitialAdWillShow(_ vrtInterstitial: VRTInterstitial) {
+        appLogger.log()
+    }
+    
+    func vrtInterstitialAdDidShow(_ vrtInterstitial: VRTInterstitial) {
+        appLogger.log()
+    }
+    
+    func vrtInterstitialAdWillLeaveApplication(_ vrtInterstitial: VRTInterstitial) {
+        appLogger.log()
+    }
+    
+    func vrtInterstitialAdWillDismiss(_ vrtInterstitial: VRTInterstitial) {
+        appLogger.log()
+    }
+    
+    func vrtInterstitialAdDidDismiss(_ vrtInterstitial: VRTInterstitial) {
+        appLogger.log()
+    }
+    
+    func vrtInterstitialVideoStarted(_ vrtInterstitial: VRTInterstitial) {
+        appLogger.log()
+    }
+    
+    func vrtInterstitialVideoCompleted(_ vrtInterstitial: VRTInterstitial) {
+        appLogger.log()
     }
 }
