@@ -44,7 +44,7 @@ class VrtcalAdaptersWrapper: AdapterWrapperProtocol {
     func initializeSdk() {
         appLogger.log("serverUrl: \(serverUrl), appId: \(appId)")
         
-        VRTLog.singleton.writeToFile = true
+        VRTLog.singleton.debugMode = true
         VrtcalSDK.setServerUrl(serverUrl)
         VrtcalSDK.initializeSdk(
             withAppId: appId,
