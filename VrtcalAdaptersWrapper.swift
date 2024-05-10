@@ -1,7 +1,7 @@
 import Vrtcal_Adapters_Wrapper_Parent
 import VrtcalSDK
 
-class VrtcalAdaptersWrapper: AdapterWrapperProtocol {
+class VrtcalAdaptersWrapper: NSObject, AdapterWrapperProtocol {
     
     var appLogger: Logger
     var sdkEventsLogger: Logger
@@ -44,10 +44,10 @@ class VrtcalAdaptersWrapper: AdapterWrapperProtocol {
     func initializeSdk() {
         appLogger.log("serverUrl: \(serverUrl), appId: \(appId)")
         
-        VRTLog.singleton.debugMode = true
+        //VRTLog.singleton.debugMode = true
         VrtcalSDK.setServerUrl(serverUrl)
         VrtcalSDK.initializeSdk(
-            withAppId: appId,
+            withAppId: UInt(appId),
             sdkDelegate: self
         )
     }
@@ -71,7 +71,7 @@ class VrtcalAdaptersWrapper: AdapterWrapperProtocol {
                 }
 
                 let zoneId = Int(adTechConfig.adUnitId) ?? 0
-                vrtBanner.loadAd(zoneId)
+                vrtBanner.loadAd(UInt(zoneId))
             
                 delegate.adapterWrapperDidProvide(banner: vrtBanner)
                 
@@ -80,7 +80,7 @@ class VrtcalAdaptersWrapper: AdapterWrapperProtocol {
             
                 self.vrtInterstitial = VRTInterstitial()
                 vrtInterstitial?.adDelegate = self
-                vrtInterstitial?.loadAd(zoneId)
+                vrtInterstitial?.loadAd(UInt(zoneId))
 
             case .rewardedVideo:
                 sdkEventsLogger.log("rewardedVideo not supported for Vrtcal")
@@ -165,9 +165,9 @@ extension VrtcalAdaptersWrapper: VRTBannerDelegate {
         appLogger.log()
     }
     
-    func vrtViewControllerForModalPresentation() -> UIViewController? {
+    func vrtViewControllerForModalPresentation() -> UIViewController {
         let ret = UIApplication.shared.keyWindow?.rootViewController
-        return ret
+        return ret!
     }
 }
     
